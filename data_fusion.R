@@ -216,7 +216,7 @@ make_bin <- function(data){
       ints <- data$intensity[comparator]
       rts <- data$rt[comparator]
       mzs <- data$mz[comparator]
-      ints_out <- fillMat(ints, rts, mzs, rts_all, mzs_all, half_rt_bin)
+      ints_out <- fillMat(ints, rts, mzs, rts_all, mzs_all, half_rt_bin, half_mz_bin)
 
       mat2[i, ] <- ints_out
       
@@ -227,7 +227,7 @@ make_bin <- function(data){
     ints <- data$intensity
     rts <- data$rt
     mzs <- data$mz
-    ints_out <- fillMat(ints, rts, mzs, rts_all, mzs_all, half_rt_bin)
+    ints_out <- fillMat(ints, rts, mzs, rts_all, mzs_all, half_rt_bin, half_mz_bin)
 
     mat2[1, ] <- ints_out
     
@@ -285,8 +285,8 @@ fig
 #standardize and center ms/raman/fused dataset: inbuilt scale() applies mean centering and 
 #standardization to unit variance
 
-scaled_ms_1 <- scale(ms_sample_1, center = TRUE, scale = TRUE) # scale() performs mean-centering
-scaled_ms_2 <- scale(ms_sample_2)                            # and scaling by standard deviation by default
+scaled_ms_1 <- scale(ms_sample_1, center = TRUE, scale = TRUE) # scale() performs mean-centering and scaling to unit variation by default
+scaled_ms_2 <- scale(ms_sample_2)                            
 scaled_raman_1 <- data.table(raman_data_1$shift, scale(raman_data_1$intensity)) 
 
 colnames(scaled_raman_1) <- c("shift", "intensity")
