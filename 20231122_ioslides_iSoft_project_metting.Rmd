@@ -1,0 +1,551 @@
+---
+title: <font color="#254C8E" size="8">iSoft&colon; pre-processing and fusion of MS and Raman spectra</font>
+author: <br> <font size="4">Ricardo Cunha, Jana Thißen, Sandeep Harikrishnan, Martin Klaßen and Thorsten Teutenberg</font> <br> <font size="3">Institut für Umwelt & Energie, Technik & Analytik e. V. (IUTA) <br> Bliersheimer Str. 58 - 60, 47229 Duisburg</font>
+output:
+  ioslides_presentation:
+    css: styles.css
+    logo: iuta-logo.png
+    smaller: true
+    widescreen: true
+always_allow_html: yes
+date: "<br> iSoft project metting <br> `r format(Sys.time(), '%d %B, %Y')`"
+---
+
+```{r setup, include=FALSE}
+library(data.table)
+library(dplyr)
+library(stats)
+library(Rcpp)
+library(knitr)
+library(magrittr)
+library(ggplot2)
+library(plotly)
+library(StreamFind)
+
+files <- list.files(paste0(getwd(), "/MassSpectra"), pattern = "mzML", full.names = TRUE)
+msEngine <- MassSpecData$new(files)
+msEngine$add_blank_names(rep("blank", 8))
+
+ramanFiles <- list.files(paste0(getwd(), "/RamanSpectra"), pattern = ".asc", full.names = TRUE)
+ramanEngine <- RamanData$new(ramanFiles)
+ramanEngine$add_replicate_names(c(rep("Sample", 11), rep("Blank", 11)))
+ramanEngine$add_blank_names(rep("Blank", 22))
+
+
+# slides > slide {
+#   overflow-x: auto !important;
+#   overflow-y: auto !important;
+# }
+```
+
+## MS analyses {.reduceTopMarginText}
+
+```{r, results='markup', comment=""}
+msEngine
+```
+
+## Paracetamol extracted ion chromatogram {.reduceTopMarginText}
+<font size="2">MS traces were parsed with target mass of 151 Da +/- 1500 ppm.</font>
+
+```{r ,echo=FALSE,message=FALSE,fig.align='center',fig.width=10,fig.height=4.6}
+msEngine$plot_eic(mass = 151, ppm = 1500, colorBy = "analyses")
+```
+
+## Spectra of Paracetamol at 100 ng/mL {.reduceTopMarginText}
+<font size="2">Spectra was parsed with *m/z* between 100 and 300 Da and an intensity above 20 x 10<sup>6</sup> counts.</font>
+```{r ,echo=FALSE,message=FALSE,fig.width=10,fig.height=5}
+msEngine$plot_spectra(analyses = 3, mz = data.table(mzmin = 100, mzmax = 300), minIntensityMS1 = 20E6)
+```
+
+## Binning approach {.reduceTopMarginText}
+
+```{r echo=FALSE, fig.align = "center", out.width='60%'}
+knitr::include_graphics("ms_data_fusion_concept.png")
+```
+
+## Binning MS spectra {.reduceTopMarginText}
+
+```{r, include=FALSE}
+make_bins <- function(data, rt_bin_size, mz_bin_size) {
+  max_rt <- max(data$rt)
+  min_rt <- min(data$rt)
+  max_mz <- max(data$mz)
+  min_mz <- min(data$mz)
+  rts_all <- seq(round(min_rt, digits = 0), round(max_rt , digits = 0), rt_bin_size)
+  mzs_all <- seq(round(min_mz, digits = 0), round(max_mz , digits = 0), mz_bin_size)
+  bins_number <- length(rts_all) * length(mzs_all)
+  bins_id <- rep(NA_character_, bins_number)
+  mat <- matrix(rep(1, bins_number * 2), nrow = bins_number, ncol = 2)
+  counter <- 0
+  for (i in seq_len(length(rts_all))) {
+    for (j in seq_len(length(mzs_all))) {
+      bins_id[counter + j] <- paste0(rts_all[i], "-", mzs_all[j])
+      mat[counter + j, 1] <- rts_all[i]
+      mat[counter + j, 2] <- mzs_all[j]
+    }
+    counter <- counter + j
+  }
+  dimnames(mat) <- list(bins_id, c("rt", "mz"))
+  as.data.frame(mat)
+}
+```
+
+```{r, include=FALSE}
+mzr <- data.table(mzmin = 100, mzmax = 300)
+ms100 <- msEngine$get_spectra(analyses = 3, mz = mzr, minIntensityMS1 = 20E6)
+```
+
+```{r , message=FALSE, comment=""}
+ms100[1:2, c("rt", "mz", "intensity"), with = FALSE] # MS spectra example
+
+bins <- make_bins(ms100, rt_bin_size = 5, mz_bin_size = 2)
+nrow(bins)
+bins[500:504, ]
+```
+
+## Fill bins {.reduceTopMarginText}
+
+```{r, include=FALSE}
+sourceCpp("fill_bins.cpp")
+```
+
+```{r}
+ints100 <- fill_bins(ms100, bins, rt_bin_size = 5, mz_bin_size = 2,
+  overlap = 0.1, # a fraction of the bin size
+  summaryFunction = "max" # to test mean and sum
+)
+```
+
+<font size="2"> <br>Bins filled with analysis from Paracetamol at 100 ng/ml. The green dot is the bin of Paracetamol (i.e., 40-152).</font>
+
+```{r ,echo=FALSE,fig.align='center', fig.width=10,fig.height=4}
+plot(seq_len(length(ints100)), ints100, type = "l", ylab = "Intensity", xlab = "Bin index")
+paraBin <- "40-152"
+paraBinN <- which(rownames(bins) %in% paraBin)
+points(x = paraBinN, y = ints100[paraBinN], pch = 19, cex = 2, col = "darkgreen")
+```
+
+## Blank correction {.reduceTopMarginText}
+
+```{r , include=FALSE}
+msBlank <- msEngine$get_spectra(analyses = 1, mz = data.table(mzmin = 100, mzmax = 300), minIntensityMS1 = 20E6)
+msBlank <- msBlank[, c("rt", "mz", "intensity"), with = FALSE]
+
+intsBlank <- fill_bins(
+  msBlank,
+  bins,
+  rt_bin_size = 5,
+  mz_bin_size = 2,
+  overlap = 0.1,
+  summaryFunction = "max"
+)
+```
+
+<font size="2">Bins from analysis of Paracetamol at 100 ng/ml (black) and blank (red). The green dot is the bin correspondent of Paracetamol peak (i.e., 40-152).</font>
+
+```{r ,echo=FALSE,fig.align='center', fig.width=10, fig.height=5}
+plot(seq_len(length(ints100)), ints100, type = "l", ylab = "Intensity", xlab = "Bins")
+lines(seq_len(length(intsBlank)), intsBlank, type = "l", col = "darkred")
+points(x = paraBinN, y = ints100[paraBinN], pch = 19, cex = 2, col = "darkgreen")
+```
+
+## Blank subtraction {.reduceTopMarginText}
+
+```{r}
+ints100 <- ints100 - intsBlank # Blank subtraction
+ints100[ints100 < 0] <- 0 # Zeroing negative values
+```
+
+<font size="2"> <br>Blank subtracted from bins of analysis from Paracetamol at 100 ng/ml. The green dot is the bin correspondent of Paracetamol peak (i.e., 40-152).</font>
+
+```{r ,echo=FALSE,fig.align='center', fig.width=10, fig.height=4}
+plot(seq_len(length(ints100)), ints100, type = "l", ylab = "Intensity", xlab = "Bins")
+points(x = paraBinN, y = ints100[paraBinN], pch = 19, cex = 2, col = "darkgreen")
+```
+
+## Scale, mean centering and block weighting {.reduceTopMarginText}
+
+```{r}
+ints100 <- ints100 / sd(ints100) # scale
+ints100 <- ints100 / sqrt(length(ints100)) # block weighting
+ints100 <- ints100 - mean(ints100) # mean centering
+```
+
+<font size="2"> <br>Scaled spectra of analysis from Paracetamol at 100 ng/ml. The green dot is the bin correspondent of Paracetamol peak (i.e., 40-152).</font>
+
+```{r ,echo=FALSE,fig.align='center', fig.width=10, fig.height=4}
+plot(seq_len(length(ints100)), ints100, type = "l", ylab = "Intensity", xlab = "Bins")
+points(x = paraBinN, y = ints100[paraBinN], pch = 19, cex = 2, col = "darkgreen")
+```
+
+## Wapper function {.reduceTopMarginText}
+
+```{r include=FALSE}
+prepareMsData <- function(spectra, rt_bin_size, mz_bin_size, overlap, blankAnalysis) {
+  
+  spectraList <- split(spectra[spectra$level == 1, c("rt", "mz", "intensity"), with = FALSE], spectra$analysis)
+  
+  bins <- make_bins(spectraList[[1]], rt_bin_size, mz_bin_size)
+  
+  # TODO before filling the bins might be needed to align across analyses
+  
+  intsList <- lapply(spectraList, function(x, bins, rt_bin_size, mz_bin_size, overlap) {
+    fill_bins(x, bins, rt_bin_size, mz_bin_size, overlap, "max")
+  },
+  bins = bins,
+  rt_bin_size = rt_bin_size,
+  mz_bin_size = mz_bin_size,
+  overlap = overlap
+  )
+  
+  intsBlank <- intsList[[blankAnalysis]]
+  
+  intsList <- intsList[!names(intsList) %in% blankAnalysis]
+  
+  intsList <- lapply(intsList, function(x, intsBlank) {
+    # blank subtraction
+    x <- x - intsBlank
+    # exclude negative intensity
+    x[x < 0] <- 0
+    # scale
+    x <- x / sd(x)
+    #block weighting
+    x <- x / sqrt(length(x))
+    # mean centering
+    x <- x - mean(x)
+    # exclude negative intensity
+    # x[x < 0] <- 0
+    x
+  }, intsBlank = intsBlank)
+  
+  matrix(
+    unlist(intsList),
+    nrow = length(intsList), ncol = length(bins$rt),
+    byrow = TRUE,
+    dimnames = list(
+      names(intsList),
+      rownames(bins)
+    )
+  )
+}
+```
+
+```{r, message=FALSE}
+mzr <- data.table(mzmin = 100, mzmax = 300)
+spectra <- msEngine$get_spectra(mz = data.table(mzmin = 100, mzmax = 300), minIntensityMS1 = 20E6)
+
+blankAnalysis <- msEngine$get_analysis_names()[1]
+
+msMat <- prepareMsData(
+  spectra,
+  rt_bin_size = 5,
+  mz_bin_size = 2,
+  overlap = 0.1,
+  blankAnalysis
+)
+```
+
+## Pre-processed MS spectra {.reduceTopMarginText}
+<font size="2">All MS analyses after bin filling, blank subtraction, scaling, block weighting and mean centering.</font>
+
+```{r ,echo=FALSE,fig.width=10,fig.height=5}
+cl <- StreamFind:::.get_colors(rownames(msMat))
+fig <- plot_ly()
+xVal <- seq_len(length(msMat[1, ]))
+for (i in seq_len(nrow(msMat))) {
+  fig <- fig %>% add_trace(
+    x = xVal,
+    y = msMat[i, ],
+    type = "scatter", mode = "lines",
+    line = list(width = 0.5, color = unname(cl[i])),
+    name = names(cl)[i],
+    legendgroup = names(cl)[i],
+    showlegend = TRUE
+  )
+  
+  fig <- fig %>% add_trace(
+    x = paraBinN,
+    y = msMat[i, ][paraBinN],
+    type = "scatter", mode = "markers",
+    marker = list(size = 10, color = unname(cl[i])),
+    name = names(cl)[i],
+    legendgroup = names(cl)[i],
+    showlegend = FALSE
+  )
+}
+xaxis <- list(
+  linecolor = toRGB("black"),
+  linewidth = 2, title = "Bins",
+  titlefont = list(size = 12, color = "black")
+)
+yaxis <- list(
+  linecolor = toRGB("black"),
+  linewidth = 2, title = "Intensity",
+  titlefont = list(size = 12, color = "black")
+)
+fig <- fig %>% plotly::layout(xaxis = xaxis, yaxis = yaxis)
+fig
+```
+
+## Raman {.ramanengine .reduceTopMarginText}
+
+```{r, results='markup', comment=""}
+ramanEngine
+```
+
+## Raman spectra {.reduceTopMarginText}
+
+```{r ,echo=FALSE,fig.width=10,fig.height=5}
+ramanEngine$plot_spectra()
+```
+
+## Average spectra {.reduceTopMarginText}
+<font size="2">Averaged spectra for the Sample (black) and Blank (red).</font>
+
+```{r, include=FALSE} 
+averageRamanSpectra <- function(spectra) {
+  if (length(unique(spectra$analysis)) > 1) {
+    split_vec <- spectra$analysis
+    spectra[["analysis"]] <- NULL
+    spectra <- split(spectra, split_vec)
+  } else {
+    analysis <- unique(spectra$analysis)
+    spectra[["analysis"]] <- NULL
+    spectra <- list(spectra)
+    names(spectra) <- analysis
+  }
+  ints <- lapply(spectra, function(x) x$intensity)
+  ints <- Reduce(`+`, ints) / length(ints) # possibly other options, e.g., max or sum
+  
+  averageSpectra <- data.table(
+    "shift" = spectra[[1]][["shift"]],
+    "intensity" = ints
+  )
+  
+  averageSpectra
+}
+```
+
+```{r ,include=FALSE}
+sampleSpectra <- ramanEngine$get_spectra(analyses = c(1:11))
+sampleSpectraAv <- averageRamanSpectra(sampleSpectra)
+blankSpectra <- ramanEngine$get_spectra(analyses = c(12:22))
+blankSpectraAv <- averageRamanSpectra(blankSpectra)
+```
+
+```{r ,echo=FALSE,fig.width=10,fig.height=4}
+plot(sampleSpectraAv, type = "l", ylab = "Intensity", xlab = "Bins")
+lines(blankSpectraAv, type = "l", col = "darkred")
+```
+
+## Average effect {.reduceTopMarginText}
+
+```{r ,echo=FALSE,fig.width=10,fig.height=5}
+cl <- StreamFind:::.get_colors(c("samples", "averaged"))
+ana <- unique(sampleSpectra$analysis)
+fig <- plot_ly()
+xVal <- seq_len(length(sampleSpectraAv$shift))[520:540]
+for (i in seq_len(length(unique(sampleSpectra$analysis)))) {
+  fig <- fig %>% add_trace(
+    x = xVal,
+    y = sampleSpectra$intensity[sampleSpectra$analysis %in% ana[i]][xVal],
+    type = "scatter", mode = "lines",
+    line = list(width = 0.5, color = unname(cl[1])),
+    name = names(cl)[1],
+    legendgroup = names(cl)[1],
+    showlegend = ifelse(i == 1, TRUE, FALSE)
+  )
+}
+
+fig <- fig %>% add_trace(
+    x = xVal,
+    y = sampleSpectraAv$intensity[xVal],
+    type = "scatter", mode = "lines",
+    line = list(width = 1.5, color = unname(cl[2])),
+    name = names(cl)[2],
+    legendgroup = names(cl)[2],
+    showlegend = TRUE
+  )
+
+xaxis <- list(
+  linecolor = toRGB("black"),
+  linewidth = 2, title = "Bins",
+  titlefont = list(size = 12, color = "black")
+)
+yaxis <- list(
+  linecolor = toRGB("black"),
+  linewidth = 2, title = "Intensity",
+  titlefont = list(size = 12, color = "black")
+)
+fig <- fig %>% plotly::layout(xaxis = xaxis, yaxis = yaxis)
+fig
+```
+
+## Trimming and blank subtraction {.reduceTopMarginText}
+
+```{r}
+sampleSpectraAv <- sampleSpectraAv[sampleSpectraAv$shift > 330]
+blankSpectraAv <- blankSpectraAv[blankSpectraAv$shift > 330]
+sampleSpectraAv$intensity <- sampleSpectraAv$intensity - blankSpectraAv$intensity
+```
+
+```{r ,echo=FALSE,fig.width=10,fig.height=4}
+plot(sampleSpectraAv, type = "l", ylab = "Intensity", xlab = "Raman shift")
+```
+
+## Baseline correction {.reduceTopMarginText}
+
+```{r}
+baselineCorrection <- function(spectra, lambda = 5, p = 0.05, maxit = 10) {
+  mat <- matrix(as.numeric(spectra$intensity), nrow = 1, dimnames = list(1, spectra$shift))
+  # Do own baseline correction for better control
+  baseOut <- baseline::baseline.als(mat, lambda = lambda, p = p, maxit = maxit)
+  data.table(
+    "shift" = spectra$shift,
+    "original" = spectra$intensity,
+    "baseline" = baseOut$baseline[1, ],
+    "corrected" = baseOut$corrected[1, ]
+  )
+}
+```
+
+```{r ,include=FALSE}
+sampleSpectraCorr <- baselineCorrection(sampleSpectraAv)
+```
+
+## Baseline corrected {.reduceTopMarginText}
+<font size="2">Baseline (red) correction for the Sample spectrum (black) with corrected spectrum colored green.</font>
+
+```{r ,echo=FALSE,fig.width=10,fig.height=5}
+plot(sampleSpectraCorr$original, type = "l", ylim = c(0, 6000))
+lines(sampleSpectraCorr$baseline, type = "l", col = "darkred")
+lines(sampleSpectraCorr$corrected, type = "l", col = "darkgreen")
+```
+
+## Scale, mean centering and block weighting {.reduceTopMarginText}
+
+```{r}
+ramanSpectra <- sampleSpectraCorr$corrected
+ramanSpectra <- ramanSpectra / sd(ramanSpectra) # scale
+ramanSpectra <- ramanSpectra / sqrt(length(ramanSpectra)) # block weighting
+ramanSpectra <- ramanSpectra - mean(ramanSpectra) # mean centering
+#ramanSpectra <- ramanSpectra + abs(min(ramanSpectra)) # lift base
+```
+
+```{r ,echo=FALSE,fig.width=10, fig.height=3.5}
+plot(ramanSpectra, type = "l")
+```
+
+## Warpper function
+
+To be done ...
+
+## Data fusion {.reduceTopMarginText}
+
+```{r}
+ramanMat <- matrix(ramanSpectra, nrow = 1, dimnames = list(1, sampleSpectraCorr$shift))
+
+# For now we repeat the raman dataset for each MS analysis
+for (i in seq_len(nrow(msMat) - 1)) {
+  ramanMat <- rbind(ramanMat, ramanMat[1, , drop = FALSE])
+}
+rownames(ramanMat) <- rownames(msMat)
+
+fusedMat <- cbind(msMat, ramanMat)
+```
+
+## Merged data {.reduceTopMarginText}
+
+```{r ,echo=FALSE,fig.width=10,fig.height=4}
+cl <- StreamFind:::.get_colors(rownames(fusedMat))
+fig <- plot_ly()
+xVal <- seq_len(length(fusedMat[1, ]))
+for (i in seq_len(nrow(fusedMat))) {
+  fig <- fig %>% add_trace(
+    x = xVal,
+    y = fusedMat[i, ],
+    type = "scatter", mode = "lines",
+    line = list(width = 0.5, color = unname(cl[i])),
+    name = names(cl)[i],
+    legendgroup = names(cl)[i],
+    showlegend = TRUE
+  )
+}
+xaxis <- list(
+  linecolor = toRGB("black"),
+  linewidth = 2, title = "Bins",
+  titlefont = list(size = 12, color = "black")
+)
+yaxis <- list(
+  linecolor = toRGB("black"),
+  linewidth = 2, title = "Intensity",
+  titlefont = list(size = 12, color = "black")
+)
+fig <- fig %>% plotly::layout(xaxis = xaxis, yaxis = yaxis)
+fig
+```
+
+## Statistic analysis {.reduceTopMarginText}
+
+```{r ,echo=FALSE,fig.width=10,fig.height=5}
+data_pca <- prcomp(fusedMat, center = TRUE, scale. = FALSE)
+pcs <- data_pca$x
+pc_data <- data.frame(PC1 = pcs[, 1], PC2 = pcs[, 2], Species = rownames(pcs))
+pca_plot <- plot_ly(
+  data = pc_data,
+  x = ~PC1,
+  y = ~PC2,
+  type = "scatter",
+  mode = "markers+text",
+  text = ~Species,
+  textfont = list(size = 14),
+  marker = list(size = 12),
+  textposition = "top center"
+) %>%
+  layout(
+    title = "PCA Plot with Annotations",
+    xaxis = list(title = "Principal Component 1"),
+    yaxis = list(title = "Principal Component 2")
+  )
+pca_plot
+```
+
+## Assessing loadings {.reduceTopMarginText}
+
+```{r ,echo=FALSE,fig.width=10,fig.height=4}
+loadings <- as.data.frame(data_pca$rotation[, 1:2])
+loadings_plot <- plot_ly(
+  data = loadings,
+  x = ~PC1,
+  y = ~PC2,
+  type = "scatter",
+  mode = "markers+text",
+  text = rownames(loadings),
+  textfont = list(size = 14),
+  marker = list(size = 10)
+) %>%
+  layout(
+    title = "PCA Loadings Plot",
+    xaxis = list(title = "Principal Component 1"),
+    yaxis = list(title = "Principal Component 2")
+  )
+loadings_plot
+```
+
+## Future work {.reduceTopMarginText}
+
+- Add retention time alignment for MS spectra 
+- Finish the wrapper functions and automate the pre-processing workflow
+- Evaluate the effected of mean, max and sum for MS and Raman spectra
+- Test the workflow for the other substances
+- Integrate quantification
+- Study approaches for statistic analysis
+
+***
+
+<br>
+<br>
+<font size="5">Thank you for your attention</font>
+
+
+

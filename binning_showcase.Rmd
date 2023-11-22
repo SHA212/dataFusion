@@ -1,10 +1,10 @@
 ---
-title: "Binning Showcase"
-subtitle: ""
+title: "iSoft: prepare and fuse MS and Raman spectra"
+subtitle: 'Institut für Umwelt & Energie, Technik & Analytik e. V. (IUTA)'
 author:
-  name: Sandeep and Ricardo
-  email: cunha@iuta.de
-  affiliation: "Institut für Umwelt & Energie, Technik & Analytik e. V. (IUTA) <br> Bliersheimer Str. 58 - 60, 47229 Duisburg"
+  - Ricardo Cunha^[Institut für Umwelt & Energie, Technik & Analytik e. V. (IUTA) <br> Bliersheimer Str. 58 - 60, 47229 Duisburg, cunha@iuta.de]
+  - Jana Thißen^[Institut für Umwelt & Energie, Technik & Analytik e. V. (IUTA) <br> Bliersheimer Str. 58 - 60, 47229 Duisburg, thissen@iuta.de]
+  - Sandeep Harikrishnan^[Institut für Umwelt & Energie, Technik & Analytik e. V. (IUTA) <br> Bliersheimer Str. 58 - 60, 47229 Duisburg, sandeep.harikrishnan@stud.uni-due.de]
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   bookdown::html_document2:
@@ -57,11 +57,15 @@ ramanEngine$add_blank_names(rep("Blank", 22))
 msEngine
 ```
 
-```{r ,echo=FALSE,fig.cap="Extracted ion chromatograms of Paracetamol (151 Da).",message=FALSE}
+<br>
+
+```{r ,echo=TRUE,fig.cap="Extracted ion chromatograms of Paracetamol (151 Da).",message=FALSE}
 msEngine$plot_eic(mass = 151, ppm = 1500, colorBy = "analyses")
 ```
 
-```{r ,echo=FALSE,fig.cap="Spectra of Paracetamol analysis at 100 ng/ml (cal_100).",message=FALSE}
+<br>
+
+```{r ,echo=TRUE,fig.cap="Spectra of Paracetamol analysis at 100 ng/ml (cal_100).",message=FALSE,fig.height=10}
 msEngine$plot_spectra(analyses = 5, mz = data.table(mzmin = 100, mzmax = 300), minIntensityMS1 = 20E6)
 ```
 
@@ -69,7 +73,7 @@ msEngine$plot_spectra(analyses = 5, mz = data.table(mzmin = 100, mzmax = 300), m
 
 ## Make bins
 
-```{r echo=FALSE, out.width="120%", fig.align = "center", fig.cap="Concept for binning the MS data."}
+```{r echo=FALSE, out.width="100%", fig.align = "center", fig.cap="Concept for binning the MS data."}
 knitr::include_graphics("ms_data_fusion_concept.png")
 ```
 
@@ -122,9 +126,10 @@ head(ms100)
 
 rt_bin_size <- 5
 mz_bin_size <- 2
-
 bins <- make_bins(ms100, rt_bin_size, mz_bin_size)
 ```
+
+<br>
 
 ```{r}
 head(bins)
@@ -153,6 +158,8 @@ paraBinN <- which(rownames(bins) %in% paraBin)
 paraBinN
 ```
 
+<br>
+
 ```{r ,echo=FALSE,fig.cap="Bins filled with analysis from Paracetamol at 100 ng/ml. The green dot is the bin correcpondent of Paracetamol peak."}
 plot(seq_len(length(ints100)), ints100, type = "l", ylab = "Intensity", xlab = "Bins")
 paraBin <- "40-152"
@@ -179,6 +186,8 @@ intsBlank <- fill_bins(
 )
 ```
 
+<br>
+
 ```{r ,echo=FALSE,fig.cap="Bins from analysis of Paracetamol at 100 ng/ml (black) and blank (red). The green dot is the bin correcpondent of Paracetamol peak."}
 plot(seq_len(length(ints100)), ints100, type = "l", ylab = "Intensity", xlab = "Bins")
 lines(seq_len(length(intsBlank)), intsBlank, type = "l", col = "darkred")
@@ -193,6 +202,8 @@ ints100Corr <- ints100 - intsBlank
 # Zeroing negative values
 ints100Corr[ints100Corr < 0] <- 0
 ```
+
+<br>
 
 ```{r ,echo=FALSE,fig.cap="Blank subtracted from bins of analysis from Paracetamol at 100 ng/ml. The green dot is the bin correcpondent of Paracetamol peak."}
 plot(seq_len(length(ints100Corr)), ints100Corr, type = "l", ylab = "Intensity", xlab = "Bins")
@@ -236,6 +247,8 @@ prepareMsData <- function(spectra, rt_bin_size, mz_bin_size, overlap, blankAnaly
     x <- x / sqrt(length(x))
     # mean centering
     x <- x - mean(x)
+    # exclude negative intensity
+    x[x < 0] <- 0
     x
   }, intsBlank = intsBlank)
   
@@ -266,6 +279,8 @@ analysesMat <- prepareMsData(
   blankAnalysis
 )
 ```
+
+<br>
 
 ```{r ,echo=FALSE,fig.cap="All MS analyses after bin filling, blank subtraction, mean centering and scaling."}
 cl <- StreamFind:::.get_colors(rownames(analysesMat))
@@ -308,7 +323,7 @@ fig
 
 <br>
 
-# Raman
+# Raman {.smaller}
 
 ```{r, results='markup'}
 ramanEngine
@@ -322,26 +337,22 @@ ramanEngine$plot_spectra()
 
 <br>
 
-## Average spectra
+## Average spectra {.smaller}
 
 ```{r}
 averageRamanSpectra <- function(spectra) {
-  
   if (length(unique(spectra$analysis)) > 1) {
     split_vec <- spectra$analysis
     spectra[["analysis"]] <- NULL
     spectra <- split(spectra, split_vec)
-    
   } else {
     analysis <- unique(spectra$analysis)
     spectra[["analysis"]] <- NULL
     spectra <- list(spectra)
     names(spectra) <- analysis
   }
-  
   ints <- lapply(spectra, function(x) x$intensity)
-  
-  ints <- Reduce(`+`, ints) / length(ints)
+  ints <- Reduce(`+`, ints) / length(ints) # possibly other options, e.g., max or sum
   
   averageSpectra <- data.table(
     "shift" = spectra[[1]][["shift"]],
@@ -360,10 +371,14 @@ blankSpectra <- ramanEngine$get_spectra(analyses = c(12:22))
 blankSpectraAv <- averageRamanSpectra(blankSpectra)
 ```
 
+<br>
+
 ```{r ,echo=FALSE,fig.cap="Averaged spectra for the Sample (black) and Blank (red)."}
 plot(sampleSpectraAv, type = "l", ylab = "Intensity", xlab = "Bins")
 lines(blankSpectraAv, type = "l", col = "darkred")
 ```
+
+<br>
 
 ```{r ,echo=FALSE,fig.cap="Average effect zoomed."}
 cl <- StreamFind:::.get_colors(c("samples", "averaged"))
@@ -416,6 +431,8 @@ blankSpectraAv <- blankSpectraAv[blankSpectraAv$shift > 330]
 sampleSpectraAv$intensity <- sampleSpectraAv$intensity - blankSpectraAv$intensity
 ```
 
+<br>
+
 ```{r ,echo=FALSE,fig.cap="Corrected spectra for the Sample."}
 plot(sampleSpectraAv, type = "l", ylab = "Intensity", xlab = "Raman shift")
 ```
@@ -440,6 +457,8 @@ baselineCorrection <- function(spectra, lambda = 5, p = 0.05, maxit = 10) {
 
 sampleSpectraCorr <- baselineCorrection(sampleSpectraAv)
 ```
+
+<br>
 
 ```{r ,echo=FALSE,fig.cap="Baseline (red) correction for the Sample spectrum (black) with corrected spectrum colored green."}
 plot(sampleSpectraCorr$original, type = "l", ylim = c(0, 6000))
@@ -469,6 +488,8 @@ sampleSpectraCorr$corrected <- sampleSpectraCorr$corrected + abs(min(sampleSpect
 ramanMat <- matrix(sampleSpectraCorr$corrected, nrow = 1, dimnames = list(1, sampleSpectraCorr$shift))
 ```
 
+<br>
+
 ```{r ,echo=FALSE,fig.cap="Scaled sample spectrum."}
 plot(sampleSpectraCorr$corrected, type = "l")
 ```
@@ -486,6 +507,8 @@ rownames(ramanMat) <- rownames(analysesMat)
 
 fusedMat <- cbind(analysesMat, ramanMat)
 ```
+
+<br>
 
 ```{r ,echo=FALSE,fig.cap="Fused data."}
 cl <- StreamFind:::.get_colors(rownames(fusedMat))
@@ -516,7 +539,7 @@ fig <- fig %>% plotly::layout(xaxis = xaxis, yaxis = yaxis)
 fig
 ```
 
-# Simple PCA
+# Statistic analysis (PCA)
 
 ```{r ,echo=FALSE,fig.cap="Simple PCA.", fig.width=9}
 data_pca <- prcomp(fusedMat, center = TRUE, scale. = FALSE)
@@ -574,5 +597,14 @@ loadings_plot <- plot_ly(
 
 # Show the plot
 loadings_plot
+```
+
+```{r, eval=FALSE,include=FALSE}
+top_n(abs(loadings[, 1, drop = FALSE]), 5)
+top_n(abs(loadings[, 2, drop = FALSE]), 5)
+
+fusedMat[4, ,drop = FALSE] %*% as.matrix(data_pca$rotation)
+fusedMat[2, ,drop = FALSE] %*% as.matrix(data_pca$rotation)
+
 ```
 
