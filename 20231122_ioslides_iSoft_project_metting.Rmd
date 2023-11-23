@@ -30,12 +30,6 @@ ramanFiles <- list.files(paste0(getwd(), "/RamanSpectra"), pattern = ".asc", ful
 ramanEngine <- RamanData$new(ramanFiles)
 ramanEngine$add_replicate_names(c(rep("Sample", 11), rep("Blank", 11)))
 ramanEngine$add_blank_names(rep("Blank", 22))
-
-
-# slides > slide {
-#   overflow-x: auto !important;
-#   overflow-y: auto !important;
-# }
 ```
 
 ## MS analyses {.reduceTopMarginText}
@@ -534,12 +528,13 @@ loadings_plot
 
 ## Future work {.reduceTopMarginText}
 
-- Add retention time alignment for MS spectra 
-- Finish the wrapper functions and automate the pre-processing workflow
-- Evaluate the effected of mean, max and sum for MS and Raman spectra
-- Test the workflow for the other substances
-- Integrate quantification
-- Study approaches for statistic analysis
+- Add retention time alignment for MS spectra (Sandeep, on going)
+- Finish the wrapper functions to automate the pre-processing workflow for MS and integrate in StreamFind (Ricardo)
+- Finish the wrapper functions to automate the pre-processing workflow for Raman and integrate in StreamFind (Sandeep, meeting to introduce into StreamFind)
+- Evaluate the effected of mean, max and sum for MS and Raman spectra (Sandeep, only after integration into StreamFind and new Paracetamol data for MS and Raman is available)
+- Test the workflow for the other substances (Ricardo)
+- Integrate quantification (Not yet)
+- Study approaches for statistic analysis (Sandeep, create repository iSoftML to start explore Machine learning approaches)
 
 ***
 
