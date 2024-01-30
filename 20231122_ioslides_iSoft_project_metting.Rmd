@@ -9,6 +9,8 @@ output:
     widescreen: true
 always_allow_html: yes
 date: "<br> iSoft project metting <br> `r format(Sys.time(), '%d %B, %Y')`"
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -48,8 +50,25 @@ msEngine$plot_eic(mass = 151, ppm = 1500, colorBy = "analyses")
 ## Spectra of Paracetamol at 100 ng/mL {.reduceTopMarginText}
 <font size="2">Spectra was parsed with *m/z* between 100 and 300 Da and an intensity above 20 x 10<sup>6</sup> counts.</font>
 ```{r ,echo=FALSE,message=FALSE,fig.width=10,fig.height=5}
-msEngine$plot_spectra(analyses = 3, mz = data.table(mzmin = 100, mzmax = 300), minIntensityMS1 = 20E6)
+msEngine$plot_spectra(
+  analyses = 3,
+  mz = data.table(mzmin = 100, mzmax = 300),
+  minIntensityMS1 = 20E6,
+  xLab = "Retentionszeit / Sekunden",
+  zLab = "Intensität"
+)
 ```
+
+```{r , include=FALSE}
+msEngine$plot_spectra(
+  analyses = 3,
+  mz = data.table(mzmin = 100, mzmax = 300),
+  minIntensityMS1 = 20E6,
+  xLab = "Retentionszeit / Sekunden",
+  zLab = "Intensität"
+)
+```
+
 
 ## Binning approach {.reduceTopMarginText}
 
@@ -113,7 +132,7 @@ ints100 <- fill_bins(ms100, bins, rt_bin_size = 5, mz_bin_size = 2,
 <font size="2"> <br>Bins filled with analysis from Paracetamol at 100 ng/ml. The green dot is the bin of Paracetamol (i.e., 40-152).</font>
 
 ```{r ,echo=FALSE,fig.align='center', fig.width=10,fig.height=4}
-plot(seq_len(length(ints100)), ints100, type = "l", ylab = "Intensity", xlab = "Bin index")
+plot(seq_len(length(ints100)), ints100, type = "l", ylab = "Intensität", xlab = "Bin-Index")
 paraBin <- "40-152"
 paraBinN <- which(rownames(bins) %in% paraBin)
 points(x = paraBinN, y = ints100[paraBinN], pch = 19, cex = 2, col = "darkgreen")
@@ -138,7 +157,7 @@ intsBlank <- fill_bins(
 <font size="2">Bins from analysis of Paracetamol at 100 ng/ml (black) and blank (red). The green dot is the bin correspondent of Paracetamol peak (i.e., 40-152).</font>
 
 ```{r ,echo=FALSE,fig.align='center', fig.width=10, fig.height=5}
-plot(seq_len(length(ints100)), ints100, type = "l", ylab = "Intensity", xlab = "Bins")
+plot(seq_len(length(ints100)), ints100, type = "l", ylab = "Intensität", xlab = "Bin-Index")
 lines(seq_len(length(intsBlank)), intsBlank, type = "l", col = "darkred")
 points(x = paraBinN, y = ints100[paraBinN], pch = 19, cex = 2, col = "darkgreen")
 ```
@@ -153,7 +172,7 @@ ints100[ints100 < 0] <- 0 # Zeroing negative values
 <font size="2"> <br>Blank subtracted from bins of analysis from Paracetamol at 100 ng/ml. The green dot is the bin correspondent of Paracetamol peak (i.e., 40-152).</font>
 
 ```{r ,echo=FALSE,fig.align='center', fig.width=10, fig.height=4}
-plot(seq_len(length(ints100)), ints100, type = "l", ylab = "Intensity", xlab = "Bins")
+plot(seq_len(length(ints100)), ints100, type = "l", ylab = "Intensität", xlab = "Bin-Index")
 points(x = paraBinN, y = ints100[paraBinN], pch = 19, cex = 2, col = "darkgreen")
 ```
 
@@ -411,7 +430,7 @@ sampleSpectraCorr <- baselineCorrection(sampleSpectraAv)
 <font size="2">Baseline (red) correction for the Sample spectrum (black) with corrected spectrum colored green.</font>
 
 ```{r ,echo=FALSE,fig.width=10,fig.height=5}
-plot(sampleSpectraCorr$original, type = "l", ylim = c(0, 6000))
+plot(sampleSpectraCorr$original, type = "l", ylim = c(0, 6000), ylab = "Intensität", xlab = "Index")
 lines(sampleSpectraCorr$baseline, type = "l", col = "darkred")
 lines(sampleSpectraCorr$corrected, type = "l", col = "darkgreen")
 ```
@@ -427,7 +446,7 @@ ramanSpectra <- ramanSpectra - mean(ramanSpectra) # mean centering
 ```
 
 ```{r ,echo=FALSE,fig.width=10, fig.height=3.5}
-plot(ramanSpectra, type = "l")
+plot(ramanSpectra, type = "l", ylab = "Norm. Intensität", xlab = "Index")
 ```
 
 ## Warpper function
@@ -452,6 +471,19 @@ fusedMat <- cbind(msMat, ramanMat)
 
 ```{r ,echo=FALSE,fig.width=10,fig.height=4}
 cl <- StreamFind:::.get_colors(rownames(fusedMat))
+
+vline <- function(x = 0, color = "darkred") {
+  list(
+    type = "line",
+    y0 = 0,
+    y1 = 1,
+    yref = "paper",
+    x0 = x,
+    x1 = x,
+    line = list(color = color, dash = "dash")
+  )
+}
+
 fig <- plot_ly()
 xVal <- seq_len(length(fusedMat[1, ]))
 for (i in seq_len(nrow(fusedMat))) {
@@ -472,10 +504,13 @@ xaxis <- list(
 )
 yaxis <- list(
   linecolor = toRGB("black"),
-  linewidth = 2, title = "Intensity",
+  linewidth = 2, title = "Norm. Intensität",
   titlefont = list(size = 12, color = "black")
 )
-fig <- fig %>% plotly::layout(xaxis = xaxis, yaxis = yaxis)
+fig <- fig %>% plotly::layout(
+  xaxis = xaxis, yaxis = yaxis,
+  shapes = list(vline(length(ints100)))
+)
 fig
 ```
 
@@ -497,9 +532,9 @@ pca_plot <- plot_ly(
   textposition = "top center"
 ) %>%
   layout(
-    title = "PCA Plot with Annotations",
-    xaxis = list(title = "Principal Component 1"),
-    yaxis = list(title = "Principal Component 2")
+    # title = "PCA Plot with Annotations",
+    xaxis = list(title = "Hauptkomponente 1"),
+    yaxis = list(title = "Hauptkomponente 2")
   )
 pca_plot
 ```
@@ -519,9 +554,9 @@ loadings_plot <- plot_ly(
   marker = list(size = 10)
 ) %>%
   layout(
-    title = "PCA Loadings Plot",
-    xaxis = list(title = "Principal Component 1"),
-    yaxis = list(title = "Principal Component 2")
+    # title = "PCA Loadings Plot",
+    xaxis = list(title = "Hauptkomponente 1"),
+    yaxis = list(title = "Hauptkomponente 2")
   )
 loadings_plot
 ```
